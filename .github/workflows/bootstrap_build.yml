@@ -1,0 +1,99 @@
+name: Build bootstrap archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      PACKAGE_NAME:
+        description: "Termux package name"
+        required: true
+        default: "com.termux"
+      ADDITIONAL_PACKAGES:
+        description: "Additional packages to include, use space to separete multiple packages"
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+          - aarch64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@main
+      
+      - name: Prepare environment
+        run: |
+          NEW_PACKAGE_NAME=${{ github.event.inputs.PACKAGE_NAME }}
+          if [[ $NEW_PACKAGE_NAME != "com.termux" ]]; then
+            echo "Modifid default package name com.termux to $NEW_PACKAGE_NAME"
+            sed -i "s/com.termux/${NEW_PACKAGE_NAME}/g" scripts/properties.sh
+          fi
+
+          ADDITIONAL_PACKAGES=${{ github.event.inputs.ADDITIONAL_PACKAGES }}
+          if [[ $ADDITIONAL_PACKAGES != "" ]]; then
+            ADD_PACKAGES_COMMA=""
+            echo "Additional packages: ${ADDITIONAL_PACKAGES}"
+            IFS=" " read -r -a ADD <<< $ADDITIONAL_PACKAGES
+            for pkg in ${ADD[@]}
+            do
+              ADD_PACKAGES_COMMA="$ADD_PACKAGES_COMMA -a $pkg"
+            done
+          fi
+          echo "ADD_PACKAGES_COMMA=$ADD_PACKAGES_COMMA" >> $GITHUB_ENV
+
+          if [[ $ADD_PACKAGES_COMMA != "" ]]; then
+            echo "Bypass build failure for some packages"
+            BROKEN_PACKAGES="bzip2"
+            sed -i "s/IGNORE_BUILD_SCRIPT_NOT_FOUND_ERROR=1/IGNORE_BUILD_SCRIPT_NOT_FOUND_ERROR=1\nBROKEN_PACKAGES=$BROKEN_PACKAGES/g" scripts/build-bootstraps.sh
+            sed -i "s|\*\"No build.sh script at package dir\"\* ]]|\*\"No build.sh script at package dir\"\* ]] \|\| [[ \$BROKEN_PACKAGES == \*\"\$package_name\"\* ]]|g" scripts/build-bootstraps.sh
+          fi
+
+
+
+      - name: Build bootstrap archive
+        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }} ${{ env.ADD_PACKAGES_COMMA }}
+
+      - name: Store artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-archives-build-${{ matrix.arch }}-${{ github.sha }}
+          path: "*.zip"
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git clone
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch bootstrap archives
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: ./
+      - name: Create new tag
+        id: get_tag
+        run: |
+          new_tag="bootstrap-$(date "+%Y.%m.%d")"
+          existing_tag_revision=$(git tag | grep "$new_tag" | sort -r | head -n 1 | cut -d- -f3 | cut -dr -f2)
+          if [ -n "$existing_tag_revision" ]; then
+            tag_rev=$((existing_tag_revision + 1))
+          else
+            tag_rev=1
+          fi
+          new_tag="${new_tag}-r${tag_rev}+apt-android-7"
+          git tag "$new_tag"
+          git push --tags
+          echo "tag_name=$new_tag" >> $GITHUB_OUTPUT
+      - name: Publish bootstrap zips to GitHub release
+        uses: termux/upload-release-action@v4.2.0
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: "*.zip"
+          file_glob: true
+          release_name: "Bootstrap archives for Termux application"
+          tag: ${{ steps.get_tag.outputs.tag_name }}
+          checksums: sha256,sha512,md5
