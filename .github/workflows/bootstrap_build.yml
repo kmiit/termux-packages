@@ -30,15 +30,10 @@ jobs:
             sed -i "s/com.termux/${NEW_PACKAGE_NAME}/g" scripts/properties.sh
           fi
 
-          ADDITIONAL_PACKAGES=${{ github.event.inputs.ADDITIONAL_PACKAGES }}
-          if [[ $ADDITIONAL_PACKAGES != "" ]]; then
-            ADD_PACKAGES_COMMA=""
+          ADDITIONAL_PACKAGES="${{ github.event.inputs.ADDITIONAL_PACKAGES }}"
+          if [[ "$ADDITIONAL_PACKAGES" != "" ]]; then
             echo "Additional packages: ${ADDITIONAL_PACKAGES}"
-            IFS=" " read -r -a ADD <<< $ADDITIONAL_PACKAGES
-            for pkg in ${ADD[@]}
-            do
-              ADD_PACKAGES_COMMA="$ADD_PACKAGES_COMMA -a $pkg"
-            done
+            ADD_PACKAGES_COMMA="-a \"$ADDITIONAL_PACKAGES\""
           fi
           echo "ADD_PACKAGES_COMMA=$ADD_PACKAGES_COMMA" >> $GITHUB_ENV
 
