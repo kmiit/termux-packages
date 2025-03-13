@@ -9,10 +9,10 @@ TERMUX_PKG_RECOMMENDS="diffutils, xxd"
 TERMUX_PKG_CONFLICTS="vim-gtk"
 TERMUX_PKG_BREAKS="vim-python, vim-runtime"
 TERMUX_PKG_REPLACES="vim-python, vim-runtime"
-TERMUX_PKG_VERSION=9.1.0900
-TERMUX_PKG_REVISION=1
+TERMUX_PKG_PROVIDES="vim-python"
+TERMUX_PKG_VERSION="9.1.1182"
 TERMUX_PKG_SRCURL="https://github.com/vim/vim/archive/v${TERMUX_PKG_VERSION}.tar.gz"
-TERMUX_PKG_SHA256=30efb714ed82c5d7a1491f3e4aac6487d2c493d33c834d7ef043e6f45176772e
+TERMUX_PKG_SHA256=76e70ba07d9c0e9583ac78079fd7bf5392fa259b3b7a3030cc2d4ea0b96e8744
 TERMUX_PKG_ON_DEVICE_BUILD_NOT_SUPPORTED=true
 TERMUX_PKG_BUILD_IN_SRC=true
 TERMUX_PKG_CONFFILES="share/vim/vimrc"
@@ -24,9 +24,10 @@ vim_cv_terminfo=yes
 vim_cv_tgetent=zero
 vim_cv_toupper_broken=no
 vim_cv_tty_group=world
+ac_cv_small_wchar_t=no
 --with-features=huge
---with-tlib=ncursesw
 --enable-netbeans=no
+--with-tlib=ncursesw
 --enable-multibyte
 --with-compiledby='Termux'
 --enable-python3interp=dynamic
@@ -60,9 +61,9 @@ TERMUX_PKG_AUTO_UPDATE=true
 TERMUX_PKG_UPDATE_VERSION_REGEXP='\d+\.\d+\.\d{2}(5|0)0'
 
 termux_pkg_auto_update() {
-	# This auto_update function is shared by `vim`, `vim-python` and `vim-gtk`
+	# This auto_update function is shared by `vim` and `vim-gtk`
 	# If you make changes to one of them,
-	# remember to apply that change to the other two as well.
+	# remember to apply that change to the other as well.
 	local release
 	release="$(git ls-remote --tags https://github.com/vim/vim.git \
 	| grep -oP "refs/tags/v\K${TERMUX_PKG_UPDATE_VERSION_REGEXP}$" \
@@ -80,21 +81,32 @@ termux_pkg_auto_update() {
 termux_step_pre_configure() {
 	make distclean
 
-	# Remove eventually existing symlinks from previous builds so that they get re-created
+	# Remove eventually existing symlinks from previous builds so that they get re-created.
 	for sym in 'rview' 'rvim' 'ex' 'view' 'vimdiff'; do
 		rm -f "${TERMUX_PREFIX}/bin/${sym}"
+		rm -f "$TERMUX_PREFIX/share/man/man1/${sym}.1"*
 	done
-	rm -f "$TERMUX_PREFIX/share/man/man1/view.1"
 }
 
 termux_step_post_make_install() {
 	sed -e "s%\@TERMUX_PREFIX\@%${TERMUX_PREFIX}%g" "$TERMUX_PKG_BUILDER_DIR/vimrc" \
 		> "$TERMUX_PREFIX/share/vim/vimrc"
 
-	# Remove most tutor files:
-	cp "$TERMUX_PREFIX/share/vim/vim91/tutor"/{tutor,tutor.vim,tutor.utf-8} "$TERMUX_PKG_TMPDIR"/
+	ln -sfr "$TERMUX_PREFIX/bin/vim" "$TERMUX_PREFIX/bin/vi"
+
+	### Remove most tutor files:
+	# Make a directory to temporarily hold the ones we want to keep
+	mkdir -p "$TERMUX_PKG_TMPDIR/vim-tutor"
+	# Copy what we want to keep into $TERMUX_PKG_TMPDIR/vim-tutor
+	cp -r   "$TERMUX_PREFIX/share/vim/vim91/tutor/en/" \
+			"$TERMUX_PREFIX/share/vim/vim91/tutor/tutor.vim" \
+			"$TERMUX_PREFIX/share/vim/vim91/tutor/tutor.tutor"{,.json} \
+			"$TERMUX_PREFIX/share/vim/vim91/tutor/tutor"{1,2}{,.utf-8} \
+			"$TERMUX_PKG_TMPDIR/vim-tutor"
+	# Remove all the tutor files
 	rm -rf "$TERMUX_PREFIX/share/vim/vim91/tutor"/*
-	cp "$TERMUX_PKG_TMPDIR"/{tutor,tutor.vim,tutor.utf-8} "$TERMUX_PREFIX/share/vim/vim91/tutor/"
+	# Copy back what we saved earlier
+	cp -r "$TERMUX_PKG_TMPDIR"/vim-tutor/* "$TERMUX_PREFIX/share/vim/vim91/tutor/"
 }
 
 termux_step_create_debscripts() {
